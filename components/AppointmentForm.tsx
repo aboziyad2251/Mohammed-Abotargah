@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Appointment, APPOINTMENT_COLORS } from '../types';
-import { X, Clock, Type, AlignLeft, Calendar as CalendarIcon, Check, Trash2 } from 'lucide-react';
+import { Appointment, APPOINTMENT_COLORS, CalendarProvider } from '../types';
+import { X, Clock, Type, AlignLeft, Calendar as CalendarIcon, Check, Trash2, ExternalLink } from 'lucide-react';
 import { format } from 'date-fns';
+import { generateGoogleCalendarLink, generateOutlookCalendarLink, generateICSContent, downloadICSFile } from '../services/calendarIntegration';
 
 interface AppointmentFormProps {
   initialDate?: Date;
@@ -10,6 +11,7 @@ interface AppointmentFormProps {
   onDelete?: (id: string) => void;
   onCancel: () => void;
   isOpen: boolean;
+  syncProvider: CalendarProvider;
 }
 
 export const AppointmentForm: React.FC<AppointmentFormProps> = ({ 
@@ -18,7 +20,8 @@ export const AppointmentForm: React.FC<AppointmentFormProps> = ({
   onSave,
   onDelete, 
   onCancel,
-  isOpen
+  isOpen,
+  syncProvider
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -63,6 +66,29 @@ export const AppointmentForm: React.FC<AppointmentFormProps> = ({
     });
   };
 
+  const handleExternalSync = () => {
+    if (!title || !startDate || !startTime || !endTime) return;
+    
+    const start = new Date(`${startDate}T${startTime}`);
+    const end = new Date(`${startDate}T${endTime}`);
+    
+    if (syncProvider === 'google') {
+      const link = generateGoogleCalendarLink(title, description, start, end);
+      window.open(link, '_blank');
+    } else if (syncProvider === 'outlook') {
+      const link = generateOutlookCalendarLink(title, description, start, end);
+      window.open(link, '_blank');
+    } else if (syncProvider === 'apple') {
+      // Create a temporary single-event ICS
+      const tempAppt: Appointment = {
+        id: existingAppointment?.id || 'temp',
+        title, description, start, end, color, alertMinutesBefore: []
+      };
+      const content = generateICSContent([tempAppt]);
+      downloadICSFile(content, `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.ics`);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -72,9 +98,21 @@ export const AppointmentForm: React.FC<AppointmentFormProps> = ({
           <h2 className="text-lg font-semibold text-slate-800 dark:text-white">
             {existingAppointment ? 'Edit Appointment' : 'New Appointment'}
           </h2>
-          <button onClick={onCancel} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {syncProvider !== 'none' && (
+              <button 
+                type="button"
+                onClick={handleExternalSync}
+                className="text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 dark:hover:text-indigo-300 p-1"
+                title={`Add to ${syncProvider === 'apple' ? 'Apple Calendar' : syncProvider === 'google' ? 'Google Calendar' : 'Outlook'}`}
+              >
+                <ExternalLink className="w-5 h-5" />
+              </button>
+            )}
+            <button onClick={onCancel} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">

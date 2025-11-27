@@ -21,6 +21,12 @@ export interface DragState {
   appointmentId: string | null;
 }
 
+export type CalendarProvider = 'google' | 'outlook' | 'apple' | 'none';
+
+export interface SyncSettings {
+  defaultProvider: CalendarProvider;
+}
+
 export const APPOINTMENT_COLORS = [
   'bg-blue-500',
   'bg-green-500',

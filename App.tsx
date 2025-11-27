@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Appointment, ViewMode, APPOINTMENT_COLORS } from './types';
+import { Appointment, ViewMode, APPOINTMENT_COLORS, SyncSettings, DragState } from './types';
 import { AppointmentForm } from './components/AppointmentForm';
 import { NextWidget } from './components/NextWidget';
 import { CountdownTimer } from './components/CountdownTimer';
+import { SyncSettingsModal } from './components/SyncSettingsModal';
 import { parseNaturalLanguageAppointment } from './services/geminiService';
 import { 
   ChevronLeft, ChevronRight, Plus, Download, Upload, 
   LayoutList, Calendar as CalendarIcon, Sparkles, Trash2, Clock, 
-  Menu, Search, ExternalLink
+  Menu, Search, ExternalLink, RefreshCw, GripVertical
 } from 'lucide-react';
 import { 
   format, startOfMonth, endOfMonth, eachDayOfInterval, 
@@ -26,6 +27,11 @@ export default function App() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [dragState, setDragState] = useState<DragState>({ isDragging: false, appointmentId: null });
+  
+  // Sync Settings State
+  const [syncSettings, setSyncSettings] = useState<SyncSettings>({ defaultProvider: 'none' });
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   
   // Check if we are in "Widget Mode" (small popup window)
   const isWidgetMode = useMemo(() => {
@@ -50,13 +56,28 @@ export default function App() {
     }
   };
 
+  const loadSettings = () => {
+    const saved = localStorage.getItem('chronos_sync_settings');
+    if (saved) {
+      try {
+        setSyncSettings(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to load sync settings", e);
+      }
+    }
+  };
+
   useEffect(() => {
     loadAppointments();
+    loadSettings();
 
     // Listen for storage events to sync across windows (Main Window <-> Widget Window)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'chronos_appointments') {
         loadAppointments();
+      }
+      if (e.key === 'chronos_sync_settings') {
+        loadSettings();
       }
     };
     window.addEventListener('storage', handleStorageChange);
@@ -65,17 +86,16 @@ export default function App() {
 
   useEffect(() => {
     // Save to local storage on ANY change.
-    // We only write if we have state, to prevent overwriting with empty state on initial load
-    // But since we load in mount, we need to be careful.
-    // Simple check: if we are in widget mode, we generally treat it as read-only for state 
-    // to avoid race conditions, unless we implement full syncing.
-    // For this simple app: Main window writes, Widget reads. 
-    // However, the prompt asked for the app to function. 
-    // We will let the widget write if needed (e.g. if we added buttons there), but currently it's read-only.
     if (!isWidgetMode) {
         localStorage.setItem('chronos_appointments', JSON.stringify(appointments));
     }
   }, [appointments, isWidgetMode]);
+
+  useEffect(() => {
+    if (!isWidgetMode) {
+      localStorage.setItem('chronos_sync_settings', JSON.stringify(syncSettings));
+    }
+  }, [syncSettings, isWidgetMode]);
 
   // --- Notification Logic (Simple Poll) ---
   useEffect(() => {
@@ -114,6 +134,40 @@ export default function App() {
         setSelectedAppointment(null);
       }
     }
+  };
+
+  // --- Drag and Drop Handlers ---
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    e.dataTransfer.effectAllowed = "move";
+    setDragState({ isDragging: true, appointmentId: id });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (e: React.DragEvent, targetDate: Date) => {
+    e.preventDefault();
+    const { appointmentId } = dragState;
+    if (!appointmentId) return;
+
+    const appt = appointments.find(a => a.id === appointmentId);
+    if (appt) {
+        // Calculate the new start time
+        // We preserve the time of day, but change the date
+        const newStart = new Date(targetDate);
+        newStart.setHours(appt.start.getHours(), appt.start.getMinutes(), appt.start.getSeconds());
+        
+        // Calculate new end time to preserve duration
+        const duration = appt.end.getTime() - appt.start.getTime();
+        const newEnd = new Date(newStart.getTime() + duration);
+        
+        const updated = { ...appt, start: newStart, end: newEnd };
+        setAppointments(prev => prev.map(a => a.id === updated.id ? updated : a));
+    }
+    
+    setDragState({ isDragging: false, appointmentId: null });
   };
 
   const handleAiSmartAdd = async (e: React.FormEvent) => {
@@ -179,7 +233,7 @@ export default function App() {
     window.open(
       `${window.location.pathname}?mode=widget`, 
       'ChronosWidget', 
-      'width=400,height=320,resizable=yes,scrollbars=no,status=no,toolbar=no,menubar=no'
+      'width=360,height=500,resizable=yes,scrollbars=yes,status=no,toolbar=no,menubar=no'
     );
   };
 
@@ -217,17 +271,22 @@ export default function App() {
   // --- WIDGET MODE RENDER ---
   if (isWidgetMode) {
     return (
-      <div className="min-h-screen bg-transparent flex flex-col p-4 items-center justify-center">
-         {/* We use a slight hack to make the body background handle transparency better if the OS supports it, 
-             otherwise we give it a slate background */}
-         <div className="w-full max-w-sm">
+      <div className="min-h-screen bg-transparent p-4 flex flex-col items-center">
+         {/* Widget Container */}
+         <div className="w-full max-w-sm flex flex-col gap-2">
             <NextWidget appointments={appointments} />
-            <div className="mt-2 text-center">
-              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">Chronos Desktop</p>
+            <div className="text-center bg-slate-900/50 rounded-full py-1 backdrop-blur-md">
+              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">Chronos Queue</p>
             </div>
          </div>
          <style>{`
-           body { background-color: #0f172a; overflow: hidden; }
+           /* Dark theme default for widget */
+           body { background-color: #0f172a; overflow-y: auto; }
+           /* Custom Scrollbar for Webkit */
+           ::-webkit-scrollbar { width: 4px; }
+           ::-webkit-scrollbar-track { background: transparent; }
+           ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+           ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
          `}</style>
       </div>
     );
@@ -267,6 +326,13 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
+             <button
+               onClick={() => setIsSyncModalOpen(true)}
+               className="p-2 text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors"
+               title="Sync Settings"
+             >
+               <RefreshCw className="w-5 h-5" />
+             </button>
              <button 
                onClick={() => { setSelectedAppointment(null); setIsFormOpen(true); }}
                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-lg shadow-indigo-500/20"
@@ -303,10 +369,10 @@ export default function App() {
             </div>
             <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                <button onClick={handleExport} className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-slate-600 bg-slate-50 rounded-lg">
-                 <Download className="w-4 h-4" /> Export
+                 <Download className="w-4 h-4" /> Backup
                </button>
                <label className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-slate-600 bg-slate-50 rounded-lg cursor-pointer">
-                 <Upload className="w-4 h-4" /> Import
+                 <Upload className="w-4 h-4" /> Restore
                  <input type="file" onChange={handleImport} className="hidden" accept=".json" />
                </label>
             </div>
@@ -439,21 +505,24 @@ export default function App() {
           const dayAppts = getDayAppointments(day);
           const isSelectedMonth = isSameMonth(day, currentDate);
           const isTodayDate = isToday(day);
+          
           return (
             <div 
               key={day.toISOString()} 
               className={`
                 min-h-[120px] bg-white dark:bg-slate-900 p-2 transition-colors relative group
                 ${!isSelectedMonth && viewMode === 'month' ? 'bg-slate-50/50 dark:bg-slate-900/50 text-slate-400' : ''}
-                ${isTodayDate ? 'bg-indigo-50/30 dark:bg-indigo-900/10' : ''}
+                ${isTodayDate ? 'bg-indigo-50/30 dark:bg-indigo-900/10 ring-inset ring-1 ring-indigo-500/20' : ''}
               `}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, day)}
               onClick={() => {
                 if (viewMode === 'month') {
                    // Optional: Click empty space logic
                 }
               }}
             >
-              <div className="flex justify-between items-start mb-1">
+              <div className="flex justify-between items-start mb-1 sticky top-0 bg-inherit z-10">
                 <span className={`
                   text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full
                   ${isTodayDate ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-700 dark:text-slate-300'}
@@ -462,19 +531,24 @@ export default function App() {
                 </span>
                 {viewMode === 'week' && <span className="text-xs text-slate-400">{format(day, 'EEE')}</span>}
               </div>
-              <div className="space-y-1.5 mt-1">
+              <div className="space-y-1.5 mt-1 overflow-y-auto max-h-[100px] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
                 {dayAppts.map(appt => (
-                  <button
+                  <div
                     key={appt.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, appt.id)}
                     onClick={(e) => { e.stopPropagation(); setSelectedAppointment(appt); setIsFormOpen(true); }}
                     className={`
-                      w-full text-left px-2 py-1 rounded text-xs font-medium truncate flex items-center gap-1.5 transition-all hover:scale-[1.02]
-                      ${appt.color} text-white shadow-sm
+                      w-full text-left px-2 py-1.5 rounded-md text-xs font-medium truncate flex items-center gap-1.5 transition-all
+                      ${appt.color} text-white shadow-sm cursor-move hover:ring-1 hover:ring-white/30
+                      ${dragState.isDragging && dragState.appointmentId === appt.id ? 'opacity-50' : 'opacity-100'}
                     `}
                   >
-                    <span className="w-1 h-1 bg-white rounded-full opacity-75 flex-shrink-0"></span>
+                    <div className="cursor-grab active:cursor-grabbing opacity-50 hover:opacity-100">
+                      <GripVertical className="w-3 h-3" />
+                    </div>
                     <span className="truncate flex-1">{appt.title}</span>
-                  </button>
+                  </div>
                 ))}
               </div>
               <button 
@@ -547,6 +621,15 @@ export default function App() {
         onSave={handleSaveAppointment}
         onDelete={handleDeleteAppointment}
         onCancel={() => { setIsFormOpen(false); setSelectedAppointment(null); }}
+        syncProvider={syncSettings.defaultProvider}
+      />
+      
+      <SyncSettingsModal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+        settings={syncSettings}
+        onUpdateSettings={setSyncSettings}
+        appointments={appointments}
       />
     </div>
   );

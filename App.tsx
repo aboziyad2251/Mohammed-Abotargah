@@ -47,9 +47,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (appointments.length > 0) {
-      localStorage.setItem('chronos_appointments', JSON.stringify(appointments));
-    }
+    // Save to local storage on ANY change to appointments, including when empty.
+    localStorage.setItem('chronos_appointments', JSON.stringify(appointments));
   }, [appointments]);
 
   // --- Notification Logic (Simple Poll) ---
@@ -64,8 +63,6 @@ export default function App() {
              if (Math.abs(timeToStart - min) < 1) {
                // In a real app, track 'notified' state to avoid spam
                console.log(`Notification for ${appt.title} in ${min} mins`);
-               // Simple toast simulation
-               // alert(`Reminder: ${appt.title} is starting in ${min} minutes!`); 
              }
            });
         }
@@ -90,6 +87,7 @@ export default function App() {
   const handleDeleteAppointment = (id: string) => {
     if (confirm('Are you sure you want to delete this appointment?')) {
       setAppointments(prev => prev.filter(a => a.id !== id));
+      // Close form if the deleted appointment was currently open
       if (selectedAppointment?.id === id) {
         setIsFormOpen(false);
         setSelectedAppointment(null);
@@ -147,7 +145,12 @@ export default function App() {
           start: new Date(a.start),
           end: new Date(a.end)
         }));
-        setAppointments(prev => [...prev, ...hydrated]); // Merge strategy
+        // Merge with existing, filtering out potential duplicate IDs
+        setAppointments(prev => {
+           const existingIds = new Set(prev.map(p => p.id));
+           const newItems = hydrated.filter((h: Appointment) => !existingIds.has(h.id));
+           return [...prev, ...newItems];
+        });
       } catch (err) {
         alert('Invalid JSON file');
       }
@@ -228,7 +231,7 @@ export default function App() {
 
           <div className="flex items-center gap-2">
              <button 
-               onClick={() => setIsFormOpen(true)}
+               onClick={() => { setSelectedAppointment(null); setIsFormOpen(true); }}
                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-lg shadow-indigo-500/20"
              >
                <Plus className="w-4 h-4" />
@@ -451,12 +454,8 @@ export default function App() {
               <button 
                 onClick={(e) => {
                    e.stopPropagation();
-                   // Set start time to clicked day
-                   // This requires passing the day to the form. 
-                   // Ideally, we'd refactor AppointmentForm to accept `initialDate`
-                   // I'll assume I can just open the form and let user edit, 
-                   // or better yet, pass a callback or specific state.
-                   // For now, simpler to just open form.
+                   // Set current date to clicked day before opening form could be a nice enhancement, 
+                   // but for now we just open the form defaults.
                    setIsFormOpen(true);
                 }}
                 className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 p-1 bg-slate-100 dark:bg-slate-800 rounded-full text-slate-500 hover:text-indigo-600 transition-opacity"
@@ -527,6 +526,7 @@ export default function App() {
         isOpen={isFormOpen}
         existingAppointment={selectedAppointment}
         onSave={handleSaveAppointment}
+        onDelete={handleDeleteAppointment}
         onCancel={() => { setIsFormOpen(false); setSelectedAppointment(null); }}
       />
     </div>

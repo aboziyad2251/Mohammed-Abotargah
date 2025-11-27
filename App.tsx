@@ -7,7 +7,7 @@ import { parseNaturalLanguageAppointment } from './services/geminiService';
 import { 
   ChevronLeft, ChevronRight, Plus, Download, Upload, 
   LayoutList, Calendar as CalendarIcon, Sparkles, Trash2, Clock, 
-  Menu, Search
+  Menu, Search, ExternalLink
 } from 'lucide-react';
 import { 
   format, startOfMonth, endOfMonth, eachDayOfInterval, 
@@ -26,14 +26,18 @@ export default function App() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  
+  // Check if we are in "Widget Mode" (small popup window)
+  const isWidgetMode = useMemo(() => {
+    return new URLSearchParams(window.location.search).get('mode') === 'widget';
+  }, []);
 
-  // --- Persistence ---
-  useEffect(() => {
+  // --- Persistence & Sync ---
+  const loadAppointments = () => {
     const saved = localStorage.getItem('chronos_appointments');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Hydrate dates
         const hydrated = parsed.map((a: any) => ({
           ...a,
           start: new Date(a.start),
@@ -44,12 +48,34 @@ export default function App() {
         console.error("Failed to load appointments", e);
       }
     }
+  };
+
+  useEffect(() => {
+    loadAppointments();
+
+    // Listen for storage events to sync across windows (Main Window <-> Widget Window)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'chronos_appointments') {
+        loadAppointments();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   useEffect(() => {
-    // Save to local storage on ANY change to appointments, including when empty.
-    localStorage.setItem('chronos_appointments', JSON.stringify(appointments));
-  }, [appointments]);
+    // Save to local storage on ANY change.
+    // We only write if we have state, to prevent overwriting with empty state on initial load
+    // But since we load in mount, we need to be careful.
+    // Simple check: if we are in widget mode, we generally treat it as read-only for state 
+    // to avoid race conditions, unless we implement full syncing.
+    // For this simple app: Main window writes, Widget reads. 
+    // However, the prompt asked for the app to function. 
+    // We will let the widget write if needed (e.g. if we added buttons there), but currently it's read-only.
+    if (!isWidgetMode) {
+        localStorage.setItem('chronos_appointments', JSON.stringify(appointments));
+    }
+  }, [appointments, isWidgetMode]);
 
   // --- Notification Logic (Simple Poll) ---
   useEffect(() => {
@@ -57,27 +83,23 @@ export default function App() {
       const now = new Date();
       appointments.forEach(appt => {
         if (appt.alertMinutesBefore && appt.alertMinutesBefore.length > 0) {
-           const timeToStart = (appt.start.getTime() - now.getTime()) / 60000; // minutes
-           // Check if we are within 1 minute of a trigger
+           const timeToStart = (appt.start.getTime() - now.getTime()) / 60000;
            appt.alertMinutesBefore.forEach(min => {
              if (Math.abs(timeToStart - min) < 1) {
-               // In a real app, track 'notified' state to avoid spam
                console.log(`Notification for ${appt.title} in ${min} mins`);
              }
            });
         }
       });
-    }, 60000); // Check every minute
+    }, 60000);
     return () => clearInterval(interval);
   }, [appointments]);
 
   // --- Handlers ---
   const handleSaveAppointment = (apptData: Omit<Appointment, 'id'>) => {
     if (selectedAppointment) {
-      // Edit
       setAppointments(prev => prev.map(a => a.id === selectedAppointment.id ? { ...apptData, id: a.id } : a));
     } else {
-      // Create
       setAppointments(prev => [...prev, { ...apptData, id: crypto.randomUUID() }]);
     }
     setIsFormOpen(false);
@@ -87,7 +109,6 @@ export default function App() {
   const handleDeleteAppointment = (id: string) => {
     if (confirm('Are you sure you want to delete this appointment?')) {
       setAppointments(prev => prev.filter(a => a.id !== id));
-      // Close form if the deleted appointment was currently open
       if (selectedAppointment?.id === id) {
         setIsFormOpen(false);
         setSelectedAppointment(null);
@@ -98,7 +119,6 @@ export default function App() {
   const handleAiSmartAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!naturalInput.trim()) return;
-    
     setIsAiLoading(true);
     const result = await parseNaturalLanguageAppointment(naturalInput, new Date());
     setIsAiLoading(false);
@@ -114,7 +134,6 @@ export default function App() {
         alertMinutesBefore: [15]
       }]);
       setNaturalInput('');
-      // Switch view to the date of the new appointment
       setCurrentDate(result.start);
     } else {
       alert("Could not understand the appointment details. Please try again.");
@@ -134,7 +153,6 @@ export default function App() {
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -145,7 +163,6 @@ export default function App() {
           start: new Date(a.start),
           end: new Date(a.end)
         }));
-        // Merge with existing, filtering out potential duplicate IDs
         setAppointments(prev => {
            const existingIds = new Set(prev.map(p => p.id));
            const newItems = hydrated.filter((h: Appointment) => !existingIds.has(h.id));
@@ -158,7 +175,14 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  // --- Navigation ---
+  const openWidgetMode = () => {
+    window.open(
+      `${window.location.pathname}?mode=widget`, 
+      'ChronosWidget', 
+      'width=400,height=320,resizable=yes,scrollbars=no,status=no,toolbar=no,menubar=no'
+    );
+  };
+
   const navigate = (direction: 'prev' | 'next') => {
     const amount = direction === 'next' ? 1 : -1;
     if (viewMode === 'month') setCurrentDate(addMonths(currentDate, amount));
@@ -166,7 +190,6 @@ export default function App() {
     else setCurrentDate(addDays(currentDate, amount));
   };
 
-  // --- Rendering Helpers ---
   const filteredAppointments = useMemo(() => {
     return appointments.filter(a => 
       a.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -174,18 +197,13 @@ export default function App() {
     );
   }, [appointments, searchTerm]);
 
-  // Calendar Grid Generation
   const calendarDays = useMemo(() => {
     if (viewMode === 'month') {
       const monthStart = startOfMonth(currentDate);
       const monthEnd = endOfMonth(currentDate);
-      const startDate = startOfWeek(monthStart);
-      const endDate = endOfWeek(monthEnd);
-      return eachDayOfInterval({ start: startDate, end: endDate });
+      return eachDayOfInterval({ start: startOfWeek(monthStart), end: endOfWeek(monthEnd) });
     } else if (viewMode === 'week') {
-      const start = startOfWeek(currentDate);
-      const end = endOfWeek(currentDate);
-      return eachDayOfInterval({ start, end });
+      return eachDayOfInterval({ start: startOfWeek(currentDate), end: endOfWeek(currentDate) });
     } else {
       return [currentDate];
     }
@@ -196,7 +214,26 @@ export default function App() {
       .sort((a, b) => a.start.getTime() - b.start.getTime());
   };
 
-  // --- Views ---
+  // --- WIDGET MODE RENDER ---
+  if (isWidgetMode) {
+    return (
+      <div className="min-h-screen bg-transparent flex flex-col p-4 items-center justify-center">
+         {/* We use a slight hack to make the body background handle transparency better if the OS supports it, 
+             otherwise we give it a slate background */}
+         <div className="w-full max-w-sm">
+            <NextWidget appointments={appointments} />
+            <div className="mt-2 text-center">
+              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">Chronos Desktop</p>
+            </div>
+         </div>
+         <style>{`
+           body { background-color: #0f172a; overflow: hidden; }
+         `}</style>
+      </div>
+    );
+  }
+
+  // --- STANDARD MODE RENDER ---
 
   const renderHeader = () => (
     <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30">
@@ -247,7 +284,6 @@ export default function App() {
         </div>
       </div>
       
-      {/* Mobile Menu */}
       {showMobileMenu && (
         <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-4">
             <div className="flex flex-col gap-2">
@@ -394,19 +430,15 @@ export default function App() {
 
     return (
       <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} gap-px bg-slate-200 dark:bg-slate-700 rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700`}>
-        {/* Header Row for Day Names */}
         {viewMode !== 'day' && ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
           <div key={day} className="bg-slate-50 dark:bg-slate-800 p-2 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">
             {day}
           </div>
         ))}
-
-        {/* Calendar Cells */}
-        {calendarDays.map((day, idx) => {
+        {calendarDays.map((day) => {
           const dayAppts = getDayAppointments(day);
           const isSelectedMonth = isSameMonth(day, currentDate);
           const isTodayDate = isToday(day);
-
           return (
             <div 
               key={day.toISOString()} 
@@ -417,7 +449,7 @@ export default function App() {
               `}
               onClick={() => {
                 if (viewMode === 'month') {
-                   // Optional: Click empty space to add
+                   // Optional: Click empty space logic
                 }
               }}
             >
@@ -428,11 +460,8 @@ export default function App() {
                 `}>
                   {format(day, 'd')}
                 </span>
-                {viewMode === 'week' && (
-                   <span className="text-xs text-slate-400">{format(day, 'EEE')}</span>
-                )}
+                {viewMode === 'week' && <span className="text-xs text-slate-400">{format(day, 'EEE')}</span>}
               </div>
-              
               <div className="space-y-1.5 mt-1">
                 {dayAppts.map(appt => (
                   <button
@@ -445,19 +474,11 @@ export default function App() {
                   >
                     <span className="w-1 h-1 bg-white rounded-full opacity-75 flex-shrink-0"></span>
                     <span className="truncate flex-1">{appt.title}</span>
-                    {viewMode === 'week' && <span className="opacity-75 text-[10px]">{format(appt.start, 'h:mma')}</span>}
                   </button>
                 ))}
               </div>
-
-              {/* Hover Plus Button */}
               <button 
-                onClick={(e) => {
-                   e.stopPropagation();
-                   // Set current date to clicked day before opening form could be a nice enhancement, 
-                   // but for now we just open the form defaults.
-                   setIsFormOpen(true);
-                }}
+                onClick={(e) => { e.stopPropagation(); setIsFormOpen(true); }}
                 className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 p-1 bg-slate-100 dark:bg-slate-800 rounded-full text-slate-500 hover:text-indigo-600 transition-opacity"
               >
                 <Plus className="w-4 h-4" />
@@ -474,8 +495,6 @@ export default function App() {
       {renderHeader()}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
-        {/* Top Section: Widget & Smart Add */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           <div className="lg:col-span-2 space-y-8">
              {renderSmartAdd()}
@@ -484,14 +503,22 @@ export default function App() {
           </div>
           
           <div className="space-y-6">
-            <NextWidget appointments={appointments} />
+            <div className="space-y-2">
+               <NextWidget appointments={appointments} />
+               <button 
+                 onClick={openWidgetMode}
+                 className="w-full py-2 flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-indigo-600 transition-colors bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm"
+               >
+                 <ExternalLink className="w-4 h-4" />
+                 Open Desktop Widget
+               </button>
+            </div>
             
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 hidden lg:block">
                <h3 className="font-semibold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
                  <LayoutList className="w-4 h-4 text-indigo-500" />
                  Today's Agenda
                </h3>
-               {/* Mini list for sidebar */}
                <div className="space-y-3">
                  {appointments
                    .filter(a => isSameDay(a.start, new Date()))
@@ -509,14 +536,6 @@ export default function App() {
                     <p className="text-sm text-slate-400 italic">No events today.</p>
                   )}
                </div>
-            </div>
-
-            <div className="bg-indigo-900/5 rounded-xl border border-indigo-100 dark:border-indigo-900/30 p-6 hidden lg:block">
-               <h4 className="text-sm font-semibold text-indigo-900 dark:text-indigo-300 mb-2">Pro Tip</h4>
-               <p className="text-xs text-indigo-700 dark:text-indigo-400 leading-relaxed">
-                 Use the Smart Add bar to quickly schedule. Try: <br/>
-                 <span className="italic">"Team meeting next Friday at 2pm for 1 hour"</span>
-               </p>
             </div>
           </div>
         </div>

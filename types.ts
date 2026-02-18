@@ -1,14 +1,36 @@
+
+export type UrgencyLevel = 'low' | 'medium' | 'high';
+
+export type Theme = 'light' | 'dark' | 'semi';
+
+export type EventStatus = 'success' | 'failed' | 'in-progress' | 'needs-plan' | 'needs-check' | 'pending';
+
+export interface Attachment {
+  id: string;
+  name: string;
+  type: string;
+  content: string; // Base64 string
+  size: number;
+}
+
 export interface Appointment {
   id: string;
   title: string;
   description: string;
+  location?: string;
+  coordinates?: { lat: number; lng: number }; // New field for geospatial data
   start: Date;
   end: Date;
   color: string;
   alertMinutesBefore: number[]; // e.g., [1440, 60, 15] for 1 day, 1 hour, 15 mins
+  googleEventId?: string; // ID from Google Calendar API
+  aiStrategy?: string; // Stored AI planning advice
+  urgency: UrgencyLevel;
+  status?: EventStatus;
+  attachments?: Attachment[];
 }
 
-export type ViewMode = 'month' | 'week' | 'day' | 'list';
+export type ViewMode = 'month' | 'week' | 'day' | 'list' | 'smart-plans';
 
 export interface CalendarState {
   currentDate: Date;
@@ -25,6 +47,9 @@ export type CalendarProvider = 'google' | 'outlook' | 'apple' | 'none';
 
 export interface SyncSettings {
   defaultProvider: CalendarProvider;
+  googleClientId?: string; // User must provide this
+  autoSync: boolean; // Whether to push to cloud automatically
+  isGoogleSignedIn?: boolean;
 }
 
 export const APPOINTMENT_COLORS = [

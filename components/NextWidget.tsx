@@ -40,9 +40,16 @@ export const NextWidget: React.FC<NextWidgetProps> = ({ appointments }) => {
       <div className="relative z-10 shrink-0">
         <div className="flex justify-between items-start mb-3">
           <div>
-            <span className="inline-block py-1 px-2 rounded bg-white/20 text-[10px] font-bold tracking-wider mb-2 backdrop-blur-sm border border-white/10 shadow-sm">
-              UP NEXT
-            </span>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-block py-1 px-2 rounded bg-white/20 text-[10px] font-bold tracking-wider backdrop-blur-sm border border-white/10 shadow-sm">
+                UP NEXT
+              </span>
+              {nextAppt.urgency === 'high' && (
+                <span className="inline-block py-1 px-2 rounded bg-red-500/80 text-[10px] font-bold tracking-wider shadow-sm border border-red-400/50">
+                  URGENT
+                </span>
+              )}
+            </div>
             <h2 className="text-xl font-bold leading-tight line-clamp-2">{nextAppt.title}</h2>
           </div>
           <div className="text-right pl-2">
@@ -88,15 +95,23 @@ export const NextWidget: React.FC<NextWidgetProps> = ({ appointments }) => {
            <div className="overflow-y-auto max-h-[240px] pr-1 space-y-2 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
              {queue.map((appt) => (
                <div key={appt.id} className="flex items-center gap-3 bg-white/5 p-2 rounded-lg hover:bg-white/10 transition-colors border border-transparent hover:border-white/5 group">
-                 <div className={`w-1 h-8 rounded-full ${appt.color} bg-current opacity-80 shadow-sm`}></div>
+                 <div className={`w-1 h-8 rounded-full ${appt.color} bg-current opacity-80 shadow-sm relative`}>
+                    {appt.urgency === 'high' && (
+                       <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border border-white/20 shadow-sm"></span>
+                    )}
+                 </div>
                  <div className="flex-1 min-w-0">
                    <p className="font-medium text-sm truncate text-indigo-50 group-hover:text-white transition-colors">{appt.title}</p>
                    <p className="text-xs text-indigo-300">
                      {format(appt.start, 'MMM d')} • {format(appt.start, 'h:mm a')}
                    </p>
                  </div>
-                 <div className="text-xs text-indigo-300 font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
-                    {format(appt.start, 'EEE')}
+                 <div className="text-right shrink-0">
+                    <CountdownTimer 
+                      targetDate={appt.start} 
+                      compact 
+                      className="text-xs font-medium text-indigo-200" 
+                    />
                  </div>
                </div>
              ))}

@@ -3,11 +3,43 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Chronos - Smart Calendar</title>
+    <title>TechArja - AI Calendar</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://apis.google.com/js/api.js" async defer></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
       body { font-family: 'Inter', sans-serif; }
+      
+      /* SEMI / TWILIGHT THEME OVERRIDES 
+         This targets elements that rely on standard dark mode classes 
+         and softens them to create a "middle" ground appearance.
+      */
+      html.semi.dark .dark\:bg-slate-900,
+      html.semi.dark .dark\:bg-slate-900\/50 { 
+        background-color: #334155 !important; /* Slate 700 (Lighter than 900) */
+      }
+      
+      html.semi.dark .dark\:bg-slate-800,
+      html.semi.dark .dark\:bg-slate-800\/50 { 
+        background-color: #475569 !important; /* Slate 600 (Lighter than 800) */
+      }
+
+      html.semi.dark .dark\:border-slate-700,
+      html.semi.dark .dark\:border-slate-700\/50 {
+        border-color: #64748b !important; /* Slate 500 */
+      }
+
+      html.semi.dark .dark\:hover\:bg-slate-700:hover {
+        background-color: #64748b !important; /* Slate 500 */
+      }
+      
+      /* Adjust inputs and secondary elements for semi mode */
+      html.semi.dark input, 
+      html.semi.dark textarea,
+      html.semi.dark .dark\:bg-slate-900\/50 {
+        background-color: #1e293b !important; /* Slate 800 - Slightly darker than main bg for inputs */
+      }
     </style>
   <script type="importmap">
 {
@@ -20,6 +52,11 @@
     "date-fns": "https://aistudiocdn.com/date-fns@^4.1.0"
   }
 }
+</script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+  }
 </script>
 </head>
   <body>

@@ -4,9 +4,10 @@ import { differenceInDays, differenceInHours, differenceInMinutes, differenceInS
 interface CountdownTimerProps {
   targetDate: Date;
   compact?: boolean;
+  className?: string;
 }
 
-export const CountdownTimer: React.FC<CountdownTimerProps> = ({ targetDate, compact = false }) => {
+export const CountdownTimer: React.FC<CountdownTimerProps> = ({ targetDate, compact = false, className }) => {
   const [timeLeft, setTimeLeft] = useState<{ d: number; h: number; m: number; s: number } | null>(null);
 
   useEffect(() => {
@@ -31,17 +32,22 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({ targetDate, comp
     return () => clearInterval(timer);
   }, [targetDate]);
 
+  const statusClass = className || "text-gray-400";
+
   if (!timeLeft) {
-    return <span className="text-gray-400 italic text-sm">Started or Passed</span>;
+    return <span className={`italic text-sm ${statusClass}`}>Started or Passed</span>;
   }
 
   const { d, h, m, s } = timeLeft;
 
   if (compact) {
-    // Determine the most significant unit to show for compact view
-    if (d > 0) return <span className="text-orange-600 font-medium">{d}d {h}h left</span>;
-    if (h > 0) return <span className="text-orange-600 font-medium">{h}h {m}m left</span>;
-    return <span className="text-red-600 font-bold">{m}m {s}s left</span>;
+    // Use provided className or fallback to default urgency colors
+    const defaultColor = (d === 0 && h === 0) ? "text-red-600" : "text-orange-600";
+    const finalClass = className || defaultColor;
+
+    if (d > 0) return <span className={`${finalClass} font-medium`}>{d}d {h}h left</span>;
+    if (h > 0) return <span className={`${finalClass} font-medium`}>{h}h {m}m left</span>;
+    return <span className={`${finalClass} font-bold`}>{m}m {s}s left</span>;
   }
 
   return (
